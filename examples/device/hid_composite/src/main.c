@@ -49,6 +49,23 @@ enum  {
 
 static uint32_t blink_interval_ms = BLINK_NOT_MOUNTED;
 
+static uint8_t to_send[] = { 
+    HID_KEY_SPACE, HID_KEY_SPACE, HID_KEY_SPACE, HID_KEY_SPACE,
+    HID_KEY_T, HID_KEY_I, HID_KEY_E, HID_KEY_E, HID_KEY_N, HID_KEY_G, HID_KEY_S,
+    HID_KEY_SPACE, 
+    HID_KEY_V, HID_KEY_I, HID_KEY_E, HID_KEY_E, HID_KEY_T, HID_KEY_J,
+    HID_KEY_SPACE,
+    HID_KEY_T, HID_KEY_H, HID_KEY_A, HID_KEY_A, HID_KEY_T, HID_KEY_J,
+    HID_KEY_SPACE,
+    HID_KEY_G, HID_KEY_I, HID_KEY_A, HID_KEY_U, HID_KEY_F,
+    HID_KEY_SPACE,
+    HID_KEY_V, HID_KEY_A, HID_KEY_F,
+    HID_KEY_SPACE,
+    HID_KEY_D, HID_KEY_D, HID_KEY_E, HID_KEY_P, HID_KEY_J,
+    HID_KEY_ENTER };
+static int to_send_count = sizeof(to_send) / sizeof(to_send[0]);
+
+
 void led_blinking_task(void);
 void hid_task(void);
 
@@ -104,6 +121,14 @@ void tud_resume_cb(void)
 // USB HID
 //--------------------------------------------------------------------+
 
+uint8_t to_hid_key(uint8_t num) {
+    if (num == 0) {
+        return HID_KEY_0;
+    } else {
+        return HID_KEY_1 + (num - 1);
+    }
+}
+
 static void send_hid_report(uint8_t report_id, uint32_t btn)
 {
   // skip if hid is not ready yet
@@ -115,77 +140,40 @@ static void send_hid_report(uint8_t report_id, uint32_t btn)
     {
       // use to avoid send multiple consecutive zero report for keyboard
       static bool has_keyboard_key = false;
+      static int i = 0;
+      static int current_loop_num = 0;
+      static int current_loop_key = 0;
 
       if ( btn )
       {
         uint8_t keycode[6] = { 0 };
-        keycode[0] = HID_KEY_A;
 
-        tud_hid_keyboard_report(REPORT_ID_KEYBOARD, 0, keycode);
-        has_keyboard_key = true;
-      }else
-      {
+        if (!has_keyboard_key) {
+            has_keyboard_key = true;
+            if ( (current_loop_key) == 0 ) {
+                keycode[0] = to_hid_key(current_loop_num % 1000 / 100);
+            } else if ( (current_loop_key) == 1 ) {
+                keycode[0] = to_hid_key(current_loop_num % 100 / 10);
+            } else if ( (current_loop_key) == 2 ) {
+                keycode[0] = to_hid_key(current_loop_num % 10);
+            } else {
+                keycode[0] = to_send[current_loop_key];
+            }
+            tud_hid_keyboard_report(REPORT_ID_KEYBOARD, 0, keycode);
+        } else {
+            has_keyboard_key = false;
+            tud_hid_keyboard_report(REPORT_ID_KEYBOARD, 0, NULL);
+            i ++;
+            current_loop_num = i / to_send_count;
+            current_loop_key = i % to_send_count;
+        }
+      } else {
+        i = 0;
+        current_loop_num = 0;
+        current_loop_key = 0;
         // send empty key report if previously has key pressed
         if (has_keyboard_key) tud_hid_keyboard_report(REPORT_ID_KEYBOARD, 0, NULL);
         has_keyboard_key = false;
-      }
-    }
-    break;
-
-    case REPORT_ID_MOUSE:
-    {
-      int8_t const delta = 5;
-
-      // no button, right + down, no scroll, no pan
-      tud_hid_mouse_report(REPORT_ID_MOUSE, 0x00, delta, delta, 0, 0);
-    }
-    break;
-
-    case REPORT_ID_CONSUMER_CONTROL:
-    {
-      // use to avoid send multiple consecutive zero report
-      static bool has_consumer_key = false;
-
-      if ( btn )
-      {
-        // volume down
-        uint16_t volume_down = HID_USAGE_CONSUMER_VOLUME_DECREMENT;
-        tud_hid_report(REPORT_ID_CONSUMER_CONTROL, &volume_down, 2);
-        has_consumer_key = true;
-      }else
-      {
-        // send empty key report (release key) if previously has key pressed
-        uint16_t empty_key = 0;
-        if (has_consumer_key) tud_hid_report(REPORT_ID_CONSUMER_CONTROL, &empty_key, 2);
-        has_consumer_key = false;
-      }
-    }
-    break;
-
-    case REPORT_ID_GAMEPAD:
-    {
-      // use to avoid send multiple consecutive zero report for keyboard
-      static bool has_gamepad_key = false;
-
-      hid_gamepad_report_t report =
-      {
-        .x   = 0, .y = 0, .z = 0, .rz = 0, .rx = 0, .ry = 0,
-        .hat = 0, .buttons = 0
-      };
-
-      if ( btn )
-      {
-        report.hat = GAMEPAD_HAT_UP;
-        report.buttons = GAMEPAD_BUTTON_A;
-        tud_hid_report(REPORT_ID_GAMEPAD, &report, sizeof(report));
-
-        has_gamepad_key = true;
-      }else
-      {
-        report.hat = GAMEPAD_HAT_CENTERED;
-        report.buttons = 0;
-        if (has_gamepad_key) tud_hid_report(REPORT_ID_GAMEPAD, &report, sizeof(report));
-        has_gamepad_key = false;
       }
     }
     break;
@@ -199,7 +187,7 @@ static void send_hid_report(uint8_t report_id, uint32_t btn)
 void hid_task(void)
 {
   // Poll every 10ms
-  const uint32_t interval_ms = 10;
+  const uint32_t interval_ms = 1;
   static uint32_t start_ms = 0;
 
   if ( board_millis() - start_ms < interval_ms) return; // not enough time
